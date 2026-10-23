@@ -18,10 +18,11 @@ const TARGET_CATEGORIES = [
   { id: "1824", name: "Premier League (EPL PPV VIP)", sortOrder: 9 },
   { id: "1728", name: "TNT Sports UK VIP", sortOrder: 10 },
   { id: "1441", name: "Sky Sports UK RAW", sortOrder: 11 },
-  { id: "33", name: "Fútbol Colombiano (Win Sports / ESPN)", sortOrder: 12 },
-  { id: "938", name: "Fútbol Argentino (TNT Sports / TyC / ESPN)", sortOrder: 13 },
-  { id: "1960", name: "ESPN+ Internacional PPV", sortOrder: 14 },
-  { id: "2032", name: "8K Sport On Air", sortOrder: 15 },
+  { id: "33", name: "Fútbol Colombiano (Win Sports)", sortOrder: 12 },
+  { id: "938", name: "Fútbol Argentino (TNT Sports / TyC)", sortOrder: 13 },
+  { id: "2388", name: "ESPN Deportes & Star+ (VIP Latam)", sortOrder: 14 },
+  { id: "492", name: "ESPN Sports USA HD (60 FPS)", sortOrder: 15 },
+  { id: "2032", name: "8K Sport On Air", sortOrder: 16 },
 ];
 
 function isSeparator(name: string): boolean {
@@ -32,12 +33,14 @@ function isSeparator(name: string): boolean {
     trimmed.startsWith("=") ||
     trimmed.startsWith("-") ||
     trimmed.includes("####") ||
-    trimmed.includes("****")
+    trimmed.includes("****") ||
+    trimmed.includes("ENDED |") ||
+    trimmed.includes("OFFLINE")
   );
 }
 
 function cleanChannelName(rawName: string): string {
-  return rawName.replace(/^ES:\s*/i, "").replace(/^ARG:\s*/i, "").replace(/^CO:\s*/i, "").trim();
+  return rawName.replace(/^(VIP|ES|ARG|CO|US|MX|CL|BR|UK):\s*/i, "").trim();
 }
 
 export async function runSyncChannels(credentials?: {
@@ -141,10 +144,30 @@ export async function runSyncChannels(credentials?: {
         const s = streams[i];
         if (isSeparator(s.name)) continue;
 
-        // If it is Colombia or Argentina category, keep sports-related channels
-        if (targetCat.id === "33" || targetCat.id === "938") {
-          const isSport = /win|espn|fox|tyc|tnt|deport|futbol/i.test(s.name);
+        // In Colombia, keep Win Sports, Claro, Fox Sports (exclude offline Claro-ESPN feeds 609301/609302)
+        if (targetCat.id === "33") {
+          if (s.stream_id === 609301 || s.stream_id === 609302) continue;
+          const isSport = /win|espn|fox|deport|futbol/i.test(s.name);
           if (!isSport) continue;
+        }
+
+        // In Argentina, keep TNT Sports, TyC Sports, Fox (exclude black-screen ESPN feeds 1997304-1997308)
+        if (targetCat.id === "938") {
+          if (/espn/i.test(s.name)) continue;
+          const isSport = /tyc|tnt|fox|deport|futbol/i.test(s.name);
+          if (!isSport) continue;
+        }
+
+        // In US Sports, keep ESPN and major sports
+        if (targetCat.id === "492") {
+          const isEspnOrMajor = /espn|fox sports|nbc|cbs/i.test(s.name);
+          if (!isEspnOrMajor) continue;
+        }
+
+        // In VIP Latam (2388), keep ESPN, Fox Sports, TUDN
+        if (targetCat.id === "2388") {
+          const isEspnOrMajor = /espn|star\+|fox sports|tudn/i.test(s.name);
+          if (!isEspnOrMajor) continue;
         }
 
         const cleanName = cleanChannelName(s.name);
@@ -186,13 +209,31 @@ export async function runSyncChannels(credentials?: {
     }
   }
 
-  // 3. Delete old mock channels if present
+  // 3. Delete old mock channels, ended PPVs, and dead black-screen feeds
   await prisma.channel.deleteMany({
     where: {
-      id: {
-        in: ["ch-101", "ch-102", "ch-103", "ch-104", "ch-105", "ch-106", "ch-107", "ch-108", "ch-109", "ch-110"],
+      OR: [
+        { id: { in: ["ch-101", "ch-102", "ch-103", "ch-104", "ch-105", "ch-106", "ch-107", "ch-108", "ch-109", "ch-110"] } },
+        { name: { contains: "ENDED" } },
+        { externalStreamId: { in: ["609301", "609302", "1997304", "1997305", "1997306", "1997307", "1997308"] } },
+        { categoryId: "cat-1960" },
+      ],
+    },
+  });
+  await prisma.channel.deleteMany({
+    where: {
+      categoryId: "cat-2388",
+      NOT: {
+        OR: [
+          { name: { contains: "ESPN" } },
+          { name: { contains: "FOX" } },
+          { name: { contains: "TUDN" } },
+        ],
       },
     },
+  });
+  await prisma.category.deleteMany({
+    where: { id: "cat-1960" },
   });
 
   const totalChannelsInDb = await prisma.channel.count();
