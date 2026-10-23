@@ -1,0 +1,85 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [main, "feature/*", "fix/*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-test:
+    name: Backend Lint, Migrations & Tests
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: strongiptv_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Backend Dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Check Backend Lint & Types
+        working-directory: ./backend
+        run: |
+          npm run lint --if-present
+          npm run typecheck --if-present
+
+      - name: Run Prisma Migrations & Seed
+        working-directory: ./backend
+        env:
+          DATABASE_URL: "file:./test.db"
+          JWT_SECRET: "test_jwt_secret_must_be_32_characters_long_123"
+          ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          ADMIN_EMAIL: "admin@golstream.pro"
+          ADMIN_PASSWORD: "AdminSecurePassword2026!"
+        run: |
+          npx prisma migrate dev --name init
+          npm run seed --if-present
+
+      - name: Execute Backend Automated Tests
+        working-directory: ./backend
+        env:
+          DATABASE_URL: "file:./test.db"
+          JWT_SECRET: "test_jwt_secret_must_be_32_characters_long_123"
+          ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        run: npm test
+
+  web-build:
+    name: Frontend Web Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Web Dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Build Web Application
+        working-directory: ./web
+        run: npm run build

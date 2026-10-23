@@ -1,0 +1,56 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: golstream_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_change_me
+      MYSQL_DATABASE: strongiptv
+      MYSQL_USER: stronguser
+      MYSQL_PASSWORD: strongpassword123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password_change_me"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: golstream_backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+      DATABASE_URL: "mysql://stronguser:strongpassword123@mysql:3306/strongiptv"
+      JWT_SECRET: "change_me_super_secret_jwt_key_at_least_32_chars_long_12345"
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      STREAM_TOKEN_SECRET: "change_me_stream_token_secret_for_manifest_protection"
+      ADMIN_NAME: "Administrador GolStream"
+      ADMIN_EMAIL: "admin@golstream.pro"
+      ADMIN_PASSWORD: "AdminSecurePassword2026!"
+      CORS_ORIGIN: "http://localhost:3000,http://localhost:5173"
+    ports:
+      - "4000:4000"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: ../docker/Dockerfile.web
+    container_name: golstream_web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  mysql_data:

@@ -1,0 +1,17 @@
+name: Solicitud de Funcionalidad
+description: Sugiere una idea o mejora para el proyecto
+title: "[FEAT]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: ¿Qué problema resuelve o qué necesidad cubre?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solución o comportamiento propuesto
+    validations:
+      required: true
