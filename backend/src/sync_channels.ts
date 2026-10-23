@@ -7,22 +7,23 @@ import { decrypt, encrypt } from "./lib/crypto.js";
 
 // Targeted football categories
 const TARGET_CATEGORIES = [
-  { id: "870", name: "LaLiga EA Sports (M+ LaLiga VIP)", sortOrder: 1 },
+  { id: "624", name: "UEFA Champions League (Oficial & ESPN)", sortOrder: 1 },
   { id: "553", name: "UEFA Champions League (M+ Campeones)", sortOrder: 2 },
-  { id: "552", name: "DAZN LaLiga VIP", sortOrder: 3 },
-  { id: "1286", name: "DAZN España VIP", sortOrder: 4 },
-  { id: "1601", name: "Copa del Rey VIP", sortOrder: 5 },
-  { id: "1290", name: "Movistar+ Vamos VIP", sortOrder: 6 },
-  { id: "1287", name: "Movistar Deportes VIP", sortOrder: 7 },
-  { id: "2113", name: "Movistar Sport RAW", sortOrder: 8 },
-  { id: "1824", name: "Premier League (EPL PPV VIP)", sortOrder: 9 },
-  { id: "1728", name: "TNT Sports UK VIP", sortOrder: 10 },
-  { id: "1441", name: "Sky Sports UK RAW", sortOrder: 11 },
-  { id: "33", name: "Fútbol Colombiano (Win Sports)", sortOrder: 12 },
-  { id: "938", name: "Fútbol Argentino (TNT Sports / TyC)", sortOrder: 13 },
-  { id: "2388", name: "ESPN Deportes & Star+ (VIP Latam)", sortOrder: 14 },
-  { id: "492", name: "ESPN Sports USA HD (60 FPS)", sortOrder: 15 },
-  { id: "2032", name: "8K Sport On Air", sortOrder: 16 },
+  { id: "870", name: "LaLiga EA Sports (M+ LaLiga VIP)", sortOrder: 3 },
+  { id: "552", name: "DAZN LaLiga VIP", sortOrder: 4 },
+  { id: "1286", name: "DAZN España VIP", sortOrder: 5 },
+  { id: "1601", name: "Copa del Rey VIP", sortOrder: 6 },
+  { id: "1290", name: "Movistar+ Vamos VIP", sortOrder: 7 },
+  { id: "1287", name: "Movistar Deportes VIP", sortOrder: 8 },
+  { id: "2113", name: "Movistar Sport RAW", sortOrder: 9 },
+  { id: "1824", name: "Premier League (EPL PPV VIP)", sortOrder: 10 },
+  { id: "1728", name: "TNT Sports UK VIP", sortOrder: 11 },
+  { id: "1441", name: "Sky Sports UK RAW", sortOrder: 12 },
+  { id: "33", name: "Fútbol Colombiano (Win Sports)", sortOrder: 13 },
+  { id: "938", name: "Fútbol Argentino (TNT Sports / TyC)", sortOrder: 14 },
+  { id: "2388", name: "ESPN Deportes & Star+ (VIP Latam)", sortOrder: 15 },
+  { id: "492", name: "ESPN Sports USA HD (60 FPS)", sortOrder: 16 },
+  { id: "2032", name: "8K Sport On Air", sortOrder: 17 },
 ];
 
 function isSeparator(name: string): boolean {
@@ -40,7 +41,12 @@ function isSeparator(name: string): boolean {
 }
 
 function cleanChannelName(rawName: string): string {
-  return rawName.replace(/^(VIP|ES|ARG|CO|US|MX|CL|BR|UK):\s*/i, "").trim();
+  let name = rawName.replace(/^(VIP|ES|ARG|CO|US|MX|CL|BR|UK|SPO):\s*/i, "").trim();
+  if (rawName.includes("CL: ESPN 1")) name = "ESPN 1 HD (Champions League Oficial)";
+  if (rawName.includes("CL: ESPN 2")) name = "ESPN 2 HD (Champions League Oficial)";
+  if (rawName.includes("CL: ESPN 3")) name = "ESPN 3 HD (Champions League Oficial)";
+  if (rawName.includes("CL: ESPN 4")) name = "ESPN 4 HD (Champions League Oficial)";
+  return name;
 }
 
 export async function runSyncChannels(credentials?: {
@@ -144,6 +150,12 @@ export async function runSyncChannels(credentials?: {
         const s = streams[i];
         if (isSeparator(s.name)) continue;
 
+        // In category 624, keep UEFA Champions League channels
+        if (targetCat.id === "624") {
+          const isUcl = /uefa|champions/i.test(s.name);
+          if (!isUcl) continue;
+        }
+
         // In Colombia, keep Win Sports, Claro, Fox Sports (exclude offline Claro-ESPN feeds 609301/609302)
         if (targetCat.id === "33") {
           if (s.stream_id === 609301 || s.stream_id === 609302) continue;
@@ -207,6 +219,42 @@ export async function runSyncChannels(credentials?: {
       const msg = catErr instanceof Error ? catErr.message : String(catErr);
       console.warn(`  - Error obteniendo streams para categoría ${targetCat.id}: ${msg}`);
     }
+  }
+
+  // Ensure the 4 primary ESPN Champions League feeds are prioritized in UEFA Champions League category
+  const uclCategory = await prisma.category.findUnique({ where: { id: "cat-624" } });
+  if (uclCategory) {
+    const primaryEspnUcl = [
+      { id: "stream-1562491", streamId: "1562491", name: "ESPN 1 HD (Champions League Oficial)", sortOrder: 1 },
+      { id: "stream-1562490", streamId: "1562490", name: "ESPN 2 HD (Champions League Oficial)", sortOrder: 2 },
+      { id: "stream-1562489", streamId: "1562489", name: "ESPN 3 HD (Champions League Oficial)", sortOrder: 3 },
+      { id: "stream-1562488", streamId: "1562488", name: "ESPN 4 HD (Champions League Oficial)", sortOrder: 4 },
+    ];
+    for (const ec of primaryEspnUcl) {
+      await prisma.channel.upsert({
+        where: { id: ec.id },
+        create: {
+          id: ec.id,
+          externalStreamId: ec.streamId,
+          name: ec.name,
+          categoryId: uclCategory.id,
+          sortOrder: ec.sortOrder,
+          isVisible: true,
+          isWorking: true,
+          lastCheckedAt: new Date(),
+        },
+        update: {
+          name: ec.name,
+          externalStreamId: ec.streamId,
+          categoryId: uclCategory.id,
+          sortOrder: ec.sortOrder,
+          isVisible: true,
+          isWorking: true,
+          lastCheckedAt: new Date(),
+        },
+      });
+    }
+    console.log("✅ 4 canales principales de ESPN Champions League asignados a la categoría oficial.");
   }
 
   // 3. Delete old mock channels, ended PPVs, and dead black-screen feeds
