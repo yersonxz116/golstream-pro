@@ -60,7 +60,13 @@ export class StreamController {
       const password = decrypt(user.iptvAccount.encryptedPassword);
       const host = decrypt(user.iptvAccount.encryptedHost);
 
-      const upstreamUrl = XtreamService.buildHlsUrl(host, username, password, channelId);
+      // Find channel externalStreamId if available
+      const channel = await prisma.channel.findUnique({
+        where: { id: channelId },
+      });
+      const streamId = channel?.externalStreamId || channelId;
+
+      const upstreamUrl = XtreamService.buildHlsUrl(host, username, password, streamId);
 
       // 4. Fetch upstream manifest
       let upstreamResponse;
@@ -83,7 +89,11 @@ export class StreamController {
       }
 
       const manifestContent = upstreamResponse.data;
-      const baseUrl = upstreamUrl.substring(0, upstreamUrl.lastIndexOf("/") + 1);
+      // Resolve against the redirected URL if the upstream load balancer redirected
+      const finalUrl =
+        (upstreamResponse.request as any)?.res?.responseUrl ||
+        (upstreamResponse.config as any)?.url ||
+        upstreamUrl;
 
       // 5. Rewrite manifest URLs to point through our chunk proxy
       const rewrittenLines = manifestContent.split("\n").map((line) => {
@@ -94,10 +104,10 @@ export class StreamController {
 
         // It is a URI for a sub-playlist or a segment
         let absoluteUrl: string;
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        try {
+          absoluteUrl = new URL(trimmed, finalUrl).href;
+        } catch {
           absoluteUrl = trimmed;
-        } else {
-          absoluteUrl = `${baseUrl}${trimmed}`;
         }
 
         const encodedTarget = Buffer.from(absoluteUrl).toString("base64url");
@@ -137,14 +147,23 @@ export class StreamController {
 
       const targetUrl = Buffer.from(targetParam, "base64url").toString("utf-8");
 
+      const headers: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      };
+      if (req.headers.range) {
+        headers["Range"] = req.headers.range as string;
+      }
+
       const response = await axios.get(targetUrl, {
         responseType: "stream",
-        timeout: 12000,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
+        timeout: 15000,
+        headers,
       });
 
+      if (response.headers["content-range"]) {
+        res.setHeader("Content-Range", response.headers["content-range"] as string);
+        res.status(206);
+      }
       res.setHeader("Content-Type", (response.headers["content-type"] as string) || "video/mp2t");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cache-Control", "public, max-age=3600");

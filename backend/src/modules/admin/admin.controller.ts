@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma.js";
 import { encrypt, decrypt } from "../../lib/crypto.js";
 import { XtreamService } from "../iptv/xtream.service.js";
+import { runSyncChannels } from "../../sync_channels.js";
 
 const createUserSchema = z.object({
   name: z.string().min(2),
@@ -402,65 +403,16 @@ export class AdminController {
   }
 
   static async syncChannels(req: Request, res: Response): Promise<void> {
-    const { host, username, password } = req.body;
-    if (!host || !username || !password) {
-      res.status(400).json({ error: "Host, username y password requeridos para sincronizar canales" });
-      return;
+    try {
+      const { host, username, password } = req.body || {};
+      const result = await runSyncChannels({ host, username, password });
+      res.json({
+        message: `Sincronización completada. Se importaron y configuraron ${result.totalChannels} canales de fútbol.`,
+        syncedCount: result.totalChannels,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error durante sincronización";
+      res.status(500).json({ error: msg });
     }
-
-    const categories = await XtreamService.getCategories(host, username, password);
-    const streams = await XtreamService.getLiveStreams(host, username, password);
-
-    let syncedCount = 0;
-    const categoryMap = new Map<string, string>();
-
-    for (const cat of categories) {
-      if (XtreamService.isFootballRelated(cat.category_name)) {
-        const savedCat = await prisma.category.upsert({
-          where: { id: cat.category_id },
-          create: {
-            id: cat.category_id,
-            externalId: cat.category_id,
-            name: cat.category_name,
-            isVisible: true,
-          },
-          update: {
-            name: cat.category_name,
-          },
-        });
-        categoryMap.set(cat.category_id, savedCat.id);
-      }
-    }
-
-    for (const stream of streams) {
-      const isCategoryFootball = categoryMap.has(stream.category_id);
-      const isStreamFootball = XtreamService.isFootballRelated(stream.name);
-
-      if (isCategoryFootball || isStreamFootball) {
-        await prisma.channel.upsert({
-          where: { id: String(stream.stream_id) },
-          create: {
-            id: String(stream.stream_id),
-            externalStreamId: String(stream.stream_id),
-            name: stream.name,
-            logoUrl: stream.stream_icon || null,
-            categoryId: categoryMap.get(stream.category_id) || null,
-            isVisible: true,
-            isWorking: true,
-          },
-          update: {
-            name: stream.name,
-            logoUrl: stream.stream_icon || null,
-            categoryId: categoryMap.get(stream.category_id) || null,
-          },
-        });
-        syncedCount++;
-      }
-    }
-
-    res.json({
-      message: `Sincronización completada. Se importaron ${syncedCount} canales de fútbol.`,
-      syncedCount,
-    });
   }
 }

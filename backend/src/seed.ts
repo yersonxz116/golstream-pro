@@ -111,112 +111,125 @@ export async function runSeed(): Promise<void> {
     });
   }
 
-  // 5. Curated Football Channels
-  const channelsData = [
-    {
-      id: "ch-101",
-      externalStreamId: "101",
-      name: "ESPN Premium HD",
-      categoryId: "cat-espn",
-      logoUrl: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=128&q=80",
-      sortOrder: 1,
-    },
-    {
-      id: "ch-102",
-      externalStreamId: "102",
-      name: "ESPN 2 HD Fútbol",
-      categoryId: "cat-espn",
-      logoUrl: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=128&q=80",
-      sortOrder: 2,
-    },
-    {
-      id: "ch-103",
-      externalStreamId: "103",
-      name: "DAZN LaLiga 1 1080p",
-      categoryId: "cat-dazn",
-      logoUrl: "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=128&q=80",
-      sortOrder: 3,
-    },
-    {
-      id: "ch-104",
-      externalStreamId: "104",
-      name: "Movistar Liga de Campeones UHD",
-      categoryId: "cat-champions",
-      logoUrl: "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=128&q=80",
-      sortOrder: 4,
-    },
-    {
-      id: "ch-105",
-      externalStreamId: "105",
-      name: "Sky Sports Premier League HD",
-      categoryId: "cat-premier",
-      logoUrl: "https://images.unsplash.com/photo-1486286701208-1d58e9338013?w=128&q=80",
-      sortOrder: 5,
-    },
-    {
-      id: "ch-106",
-      externalStreamId: "106",
-      name: "beIN Sports 1 HD Fútbol",
-      categoryId: "cat-champions",
-      logoUrl: "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=128&q=80",
-      sortOrder: 6,
-    },
-    {
-      id: "ch-107",
-      externalStreamId: "107",
-      name: "TNT Sports HD Fútbol",
-      categoryId: "cat-libertadores",
-      logoUrl: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=128&q=80",
-      sortOrder: 7,
-    },
-    {
-      id: "ch-108",
-      externalStreamId: "108",
-      name: "TyC Sports HD",
-      categoryId: "cat-libertadores",
-      logoUrl: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=128&q=80",
-      sortOrder: 8,
-    },
-    {
-      id: "ch-109",
-      externalStreamId: "109",
-      name: "Win Sports+ HD Fútbol Colombiano",
-      categoryId: "cat-libertadores",
-      logoUrl: "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=128&q=80",
-      sortOrder: 9,
-    },
-    {
-      id: "ch-110",
-      externalStreamId: "110",
-      name: "Fox Sports 1 HD",
-      categoryId: "cat-espn",
-      logoUrl: "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=128&q=80",
-      sortOrder: 10,
-    },
-  ];
-
-  for (const ch of channelsData) {
-    await prisma.channel.upsert({
-      where: { id: ch.id },
-      create: {
-        id: ch.id,
-        externalStreamId: ch.externalStreamId,
-        name: ch.name,
-        categoryId: ch.categoryId,
-        logoUrl: ch.logoUrl,
-        sortOrder: ch.sortOrder,
-        isVisible: true,
-        isWorking: true,
+  // 5. Curated Football Channels (only if no channels exist yet)
+  const existingChannelsCount = await prisma.channel.count();
+  if (existingChannelsCount === 0) {
+    const channelsData = [
+      {
+        id: "ch-101",
+        externalStreamId: "101",
+        name: "ESPN Premium HD",
+        categoryId: "cat-espn",
+        logoUrl: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=128&q=80",
+        sortOrder: 1,
       },
-      update: {
-        name: ch.name,
-        logoUrl: ch.logoUrl,
-        sortOrder: ch.sortOrder,
+      {
+        id: "ch-102",
+        externalStreamId: "102",
+        name: "ESPN 2 HD Fútbol",
+        categoryId: "cat-espn",
+        logoUrl: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=128&q=80",
+        sortOrder: 2,
+      },
+      {
+        id: "ch-103",
+        externalStreamId: "103",
+        name: "DAZN LaLiga 1 1080p",
+        categoryId: "cat-dazn",
+        logoUrl: "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=128&q=80",
+        sortOrder: 3,
+      },
+      {
+        id: "ch-104",
+        externalStreamId: "104",
+        name: "Movistar Liga de Campeones UHD",
+        categoryId: "cat-champions",
+        logoUrl: "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=128&q=80",
+        sortOrder: 4,
+      },
+      {
+        id: "ch-105",
+        externalStreamId: "105",
+        name: "Sky Sports Premier League HD",
+        categoryId: "cat-premier",
+        logoUrl: "https://images.unsplash.com/photo-1486286701208-1d58e9338013?w=128&q=80",
+        sortOrder: 5,
+      },
+      {
+        id: "ch-106",
+        externalStreamId: "106",
+        name: "beIN Sports 1 HD Fútbol",
+        categoryId: "cat-champions",
+        logoUrl: "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=128&q=80",
+        sortOrder: 6,
+      },
+      {
+        id: "ch-107",
+        externalStreamId: "107",
+        name: "TNT Sports HD Fútbol",
+        categoryId: "cat-libertadores",
+        logoUrl: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=128&q=80",
+        sortOrder: 7,
+      },
+      {
+        id: "ch-108",
+        externalStreamId: "108",
+        name: "TyC Sports HD",
+        categoryId: "cat-libertadores",
+        logoUrl: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=128&q=80",
+        sortOrder: 8,
+      },
+      {
+        id: "ch-109",
+        externalStreamId: "109",
+        name: "Win Sports+ HD Fútbol Colombiano",
+        categoryId: "cat-libertadores",
+        logoUrl: "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=128&q=80",
+        sortOrder: 9,
+      },
+      {
+        id: "ch-110",
+        externalStreamId: "110",
+        name: "Fox Sports 1 HD",
+        categoryId: "cat-espn",
+        logoUrl: "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?w=128&q=80",
+        sortOrder: 10,
+      },
+    ];
+
+    for (const ch of channelsData) {
+      await prisma.channel.upsert({
+        where: { id: ch.id },
+        create: {
+          id: ch.id,
+          externalStreamId: ch.externalStreamId,
+          name: ch.name,
+          categoryId: ch.categoryId,
+          logoUrl: ch.logoUrl,
+          sortOrder: ch.sortOrder,
+          isVisible: true,
+          isWorking: true,
+        },
+        update: {
+          name: ch.name,
+          logoUrl: ch.logoUrl,
+          sortOrder: ch.sortOrder,
+        },
+      });
+    }
+
+    console.log(`✅ ${channelsData.length} canales de fútbol sembrados exitosamente.`);
+  } else {
+    // Clean mock channels if real channels exist
+    await prisma.channel.deleteMany({
+      where: {
+        id: {
+          in: ["ch-101", "ch-102", "ch-103", "ch-104", "ch-105", "ch-106", "ch-107", "ch-108", "ch-109", "ch-110"],
+        },
       },
     });
+    console.log(`✅ Ya existen ${existingChannelsCount} canales reales sincronizados en la base de datos.`);
   }
-
-  console.log(`✅ ${channelsData.length} canales de fútbol sembrados exitosamente.`);
   console.log("🌱 Database seeding completed successfully!");
 }
 

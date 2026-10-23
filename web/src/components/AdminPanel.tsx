@@ -26,6 +26,7 @@ export const AdminPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [actionMessage, setActionMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [isSyncingChannels, setIsSyncingChannels] = useState(false);
 
   // Modals state
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
@@ -183,6 +184,19 @@ export const AdminPanel: React.FC = () => {
       loadData();
     } catch (err: unknown) {
       showNotification(err instanceof Error ? err.message : "Error actualizando canal", "error");
+    }
+  };
+
+  const handleSyncChannels = async () => {
+    setIsSyncingChannels(true);
+    try {
+      const res = await api.syncChannels();
+      showNotification(res.message);
+      loadData();
+    } catch (err: unknown) {
+      showNotification(err instanceof Error ? err.message : "Error al sincronizar canales", "error");
+    } finally {
+      setIsSyncingChannels(false);
     }
   };
 
@@ -495,16 +509,26 @@ export const AdminPanel: React.FC = () => {
       {/* TAB 3: CHANNELS */}
       {activeTab === "channels" && (
         <div className="mt-6 space-y-4">
-          <div className="bg-[#1c1f29] border border-[#262a34] rounded-xl p-4 flex items-center justify-between">
+          <div className="bg-[#1c1f29] border border-[#262a34] rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="font-headline font-semibold text-sm text-white">Canales de Fútbol Habilitados</h3>
               <p className="text-xs text-[#86948a] font-mono">
                 Solo los canales marcados como VISIBLES serán reproducibles por los usuarios suscriptores.
               </p>
             </div>
-            <span className="text-xs font-mono text-[#4edea3] px-2.5 py-1 rounded bg-[#4edea3]/10 border border-[#4edea3]/30">
-              {channels.filter((c) => c.isVisible).length} / {channels.length} Activos
-            </span>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={handleSyncChannels}
+                disabled={isSyncingChannels}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#4edea3] hover:bg-[#10b981] disabled:opacity-50 text-[#003824] rounded-lg text-xs font-bold transition shadow-md shadow-[#4edea3]/20"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isSyncingChannels ? "animate-spin" : ""}`} />
+                <span>{isSyncingChannels ? "Sincronizando..." : "Sincronizar Canales IPTV"}</span>
+              </button>
+              <span className="text-xs font-mono text-[#4edea3] px-2.5 py-1 rounded bg-[#4edea3]/10 border border-[#4edea3]/30 whitespace-nowrap">
+                {channels.filter((c) => c.isVisible).length} / {channels.length} Activos
+              </span>
+            </div>
           </div>
 
           <div className="bg-[#1c1f29] border border-[#262a34] rounded-xl overflow-hidden shadow-xl">

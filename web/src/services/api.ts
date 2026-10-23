@@ -180,4 +180,12 @@ export const api = {
     });
     return handleResponse(res);
   },
+
+  async syncChannels(): Promise<{ message: string; syncedCount: number }> {
+    const res = await fetch(`${BASE_URL}/admin/channels/sync`, {
+      method: "POST",
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
 };
