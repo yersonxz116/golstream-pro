@@ -1,0 +1,8 @@
+## Ubicación del SDK de Android para compilar localmente
+## Descomentar y ajustar la ruta correspondiente a tu sistema:
+## En Windows:
+# sdk.dir=C\:\\Users\\TuUsuario\\AppData\\Local\\Android\\Sdk
+## En macOS:
+# sdk.dir=/Users/TuUsuario/Library/Android/sdk
+## En Linux:
+# sdk.dir=/home/TuUsuario/Android/Sdk
