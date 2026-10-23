@@ -1,0 +1,116 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Role {
+  id    String @id
+  name  String
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  name         String
+  passwordHash String
+  status       String        @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  roleId       String
+  role         Role          @relation(fields: [roleId], references: [id])
+  iptvAccount  IptvAccount?
+  subscription Subscription?
+  favorites    Favorite[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("users")
+}
+
+model IptvAccount {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  encryptedUsername String
+  encryptedPassword String
+  encryptedHost     String
+  lastTestedAt      DateTime?
+  isValid           Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("iptv_accounts")
+}
+
+model Subscription {
+  id        String                @id @default(uuid())
+  userId    String                @unique
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate DateTime
+  endDate   DateTime
+  status    String                @default("ACTIVE") // ACTIVE, EXPIRING_SOON, EXPIRED, SUSPENDED
+  history   SubscriptionHistory[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@map("subscriptions")
+}
+
+model SubscriptionHistory {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  action         String // ACTIVATED, RENEWED, SUSPENDED, CANCELLED
+  effectiveDate  DateTime     @default(now())
+  newEndDate     DateTime
+  notes          String?
+  createdAt      DateTime     @default(now())
+
+  @@map("subscription_history")
+}
+
+model Category {
+  id         String    @id @default(uuid())
+  externalId String?
+  name       String
+  isVisible  Boolean   @default(true)
+  sortOrder  Int       @default(0)
+  channels   Channel[]
+  createdAt  DateTime  @default(now())
+
+  @@map("categories")
+}
+
+model Channel {
+  id               String     @id @default(uuid())
+  externalStreamId String
+  name             String
+  logoUrl          String?
+  categoryId       String?
+  category         Category?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  isVisible        Boolean    @default(true)
+  sortOrder        Int        @default(0)
+  isWorking        Boolean    @default(true)
+  lastCheckedAt    DateTime?
+  favorites        Favorite[]
+  createdAt        DateTime   @default(now())
+
+  @@map("channels")
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, channelId])
+  @@map("favorites")
+}
