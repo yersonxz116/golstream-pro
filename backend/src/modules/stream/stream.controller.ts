@@ -1,9 +1,15 @@
+import http from "http";
+import https from "https";
 import { Request, Response } from "express";
 import axios from "axios";
 import { verifyStreamToken } from "../../lib/jwt.js";
 import { prisma } from "../../lib/prisma.js";
 import { decrypt } from "../../lib/crypto.js";
 import { XtreamService } from "../iptv/xtream.service.js";
+
+// Reusable Keep-Alive agents to eliminate TCP handshake latency on proxy chunks
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 100, maxFreeSockets: 20, timeout: 60000 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 100, maxFreeSockets: 20, timeout: 60000 });
 
 export class StreamController {
   /**
@@ -74,8 +80,11 @@ export class StreamController {
         upstreamResponse = await axios.get<string>(upstreamUrl, {
           responseType: "text",
           timeout: 10000,
+          httpAgent,
+          httpsAgent,
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            Connection: "keep-alive",
           },
         });
       } catch (err: unknown) {
@@ -157,7 +166,12 @@ export class StreamController {
       const response = await axios.get(targetUrl, {
         responseType: "stream",
         timeout: 15000,
-        headers,
+        httpAgent,
+        httpsAgent,
+        headers: {
+          ...headers,
+          Connection: "keep-alive",
+        },
       });
 
       if (response.headers["content-range"]) {
@@ -167,6 +181,7 @@ export class StreamController {
       res.setHeader("Content-Type", (response.headers["content-type"] as string) || "video/mp2t");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("Connection", "keep-alive");
 
       response.data.pipe(res);
     } catch (err: unknown) {

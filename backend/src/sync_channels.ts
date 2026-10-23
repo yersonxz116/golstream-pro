@@ -9,21 +9,21 @@ import { decrypt, encrypt } from "./lib/crypto.js";
 const TARGET_CATEGORIES = [
   { id: "624", name: "UEFA Champions League (Oficial & ESPN)", sortOrder: 1 },
   { id: "553", name: "UEFA Champions League (M+ Campeones)", sortOrder: 2 },
-  { id: "870", name: "LaLiga EA Sports (M+ LaLiga VIP)", sortOrder: 3 },
-  { id: "552", name: "DAZN LaLiga VIP", sortOrder: 4 },
-  { id: "1286", name: "DAZN España VIP", sortOrder: 5 },
-  { id: "1601", name: "Copa del Rey VIP", sortOrder: 6 },
-  { id: "1290", name: "Movistar+ Vamos VIP", sortOrder: 7 },
-  { id: "1287", name: "Movistar Deportes VIP", sortOrder: 8 },
-  { id: "2113", name: "Movistar Sport RAW", sortOrder: 9 },
-  { id: "1824", name: "Premier League (EPL PPV VIP)", sortOrder: 10 },
-  { id: "1728", name: "TNT Sports UK VIP", sortOrder: 11 },
-  { id: "1441", name: "Sky Sports UK RAW", sortOrder: 12 },
-  { id: "33", name: "Fútbol Colombiano (Win Sports)", sortOrder: 13 },
-  { id: "938", name: "Fútbol Argentino (TNT Sports / TyC)", sortOrder: 14 },
-  { id: "2388", name: "ESPN Deportes & Star+ (VIP Latam)", sortOrder: 15 },
-  { id: "492", name: "ESPN Sports USA HD (60 FPS)", sortOrder: 16 },
-  { id: "2032", name: "8K Sport On Air", sortOrder: 17 },
+  { id: "870", name: "LaLiga EA Sports (M+ LaLiga VIP)", sortOrder: 4 },
+  { id: "552", name: "DAZN LaLiga VIP", sortOrder: 5 },
+  { id: "1286", name: "DAZN España VIP", sortOrder: 6 },
+  { id: "1601", name: "Copa del Rey VIP", sortOrder: 7 },
+  { id: "1290", name: "Movistar+ Vamos VIP", sortOrder: 8 },
+  { id: "1287", name: "Movistar Deportes VIP", sortOrder: 9 },
+  { id: "2113", name: "Movistar Sport RAW", sortOrder: 10 },
+  { id: "1824", name: "Premier League (EPL PPV VIP)", sortOrder: 11 },
+  { id: "1728", name: "TNT Sports UK VIP", sortOrder: 12 },
+  { id: "1441", name: "Sky Sports UK RAW", sortOrder: 13 },
+  { id: "33", name: "Fútbol Colombiano (Win Sports)", sortOrder: 14 },
+  { id: "938", name: "Fútbol Argentino (TNT Sports / TyC)", sortOrder: 15 },
+  { id: "2388", name: "ESPN Deportes & Star+ (VIP Latam)", sortOrder: 16 },
+  { id: "492", name: "ESPN Sports USA HD (60 FPS)", sortOrder: 17 },
+  { id: "2032", name: "8K Sport On Air", sortOrder: 18 },
 ];
 
 function isSeparator(name: string): boolean {
@@ -256,6 +256,55 @@ export async function runSyncChannels(credentials?: {
     }
     console.log("✅ 4 canales principales de ESPN Champions League asignados a la categoría oficial.");
   }
+
+  // Ensure DIRECTV Sports (DSPORTS) Category and Channels are prioritized
+  const dsportsCat = await prisma.category.upsert({
+    where: { id: "cat-dsports" },
+    create: {
+      id: "cat-dsports",
+      externalId: "dsports",
+      name: "DIRECTV Sports (DSPORTS)",
+      sortOrder: 3,
+      isVisible: true,
+    },
+    update: {
+      name: "DIRECTV Sports (DSPORTS)",
+      sortOrder: 3,
+      isVisible: true,
+    },
+  });
+
+  const dsportsChannels = [
+    { id: "stream-441113", streamId: "441113", name: "DSPORTS HD (DIRECTV Sports 1080p)", sortOrder: 1 },
+    { id: "stream-609304", streamId: "609304", name: "DSPORTS 1 (DIRECTV Sports Colombia & Sudamérica)", sortOrder: 2 },
+    { id: "stream-1997323", streamId: "1997323", name: "DSPORTS Argentina (DTV RAW 60FPS)", sortOrder: 3 },
+  ];
+
+  for (const dc of dsportsChannels) {
+    await prisma.channel.upsert({
+      where: { id: dc.id },
+      create: {
+        id: dc.id,
+        externalStreamId: dc.streamId,
+        name: dc.name,
+        categoryId: dsportsCat.id,
+        sortOrder: dc.sortOrder,
+        isVisible: true,
+        isWorking: true,
+        lastCheckedAt: new Date(),
+      },
+      update: {
+        name: dc.name,
+        externalStreamId: dc.streamId,
+        categoryId: dsportsCat.id,
+        sortOrder: dc.sortOrder,
+        isVisible: true,
+        isWorking: true,
+        lastCheckedAt: new Date(),
+      },
+    });
+  }
+  console.log("✅ Canales de DIRECTV Sports (DSPORTS) asignados y configurados.");
 
   // 3. Delete old mock channels, ended PPVs, and dead black-screen feeds
   await prisma.channel.deleteMany({

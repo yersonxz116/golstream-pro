@@ -69,20 +69,32 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        backBufferLength: 90,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        manifestLoadingTimeOut: 15000,
-        manifestLoadingMaxRetry: 4,
-        levelLoadingTimeOut: 15000,
-        fragLoadingTimeOut: 20000,
-        fragLoadingMaxRetry: 5,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 3,
+        liveDurationInfinity: true,
+        backBufferLength: 30,
+        maxBufferLength: 4,
+        maxMaxBufferLength: 8,
+        maxBufferSize: 30 * 1000 * 1000,
+        startFragPrefetch: true,
+        testBandwidth: false,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingTimeOut: 10000,
+        fragLoadingTimeOut: 15000,
+        fragLoadingMaxRetry: 4,
+        nudgeOffset: 0.1,
+        nudgeMaxRetry: 5,
       });
 
       hlsRef.current = hls;
 
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
+
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        setIsLoading(false);
+      });
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         setIsLoading(false);
