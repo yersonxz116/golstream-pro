@@ -1,6 +1,6 @@
 import React from "react";
 import { User, Subscription } from "../types";
-import { Tv, ShieldCheck, UserCheck, LogOut, Clock, AlertTriangle } from "lucide-react";
+import { Tv, ShieldCheck, UserCheck, LogOut, Clock, AlertTriangle, Menu, ListVideo } from "lucide-react";
 
 interface NavbarProps {
   user: User;
@@ -8,6 +8,8 @@ interface NavbarProps {
   isAdminView: boolean;
   onToggleAdminView: () => void;
   onLogout: () => void;
+  onToggleSidebar?: () => void;
+  isSidebarOpen?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -16,21 +18,46 @@ export const Navbar: React.FC<NavbarProps> = ({
   isAdminView,
   onToggleAdminView,
   onLogout,
+  onToggleSidebar,
 }) => {
   return (
-    <header className="sticky top-0 z-40 bg-[#0f131c]/95 backdrop-blur-md border-b border-[#262a34] px-4 lg:px-8 py-3">
-      <div className="max-w-7xl mx-auto flex items-center justify-between">
-        {/* Brand / Logo */}
-        <div className="flex items-center space-x-3 cursor-pointer" onClick={() => isAdminView && onToggleAdminView()}>
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#10b981] to-[#00422b] flex items-center justify-center shadow-lg shadow-[#10b981]/20">
-            <Tv className="w-6 h-6 text-[#0f131c]" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="font-headline font-bold text-xl tracking-tight text-white">GOLSTREAM</span>
-              <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded bg-[#4edea3]/20 text-[#4edea3] border border-[#4edea3]/30">PRO</span>
+    <header className="sticky top-0 z-40 bg-[#0f131c]/95 backdrop-blur-md border-b border-[#262a34] px-4 lg:px-6 py-2.5">
+      <div className="flex items-center justify-between">
+        {/* Left: Sidebar Toggle + Brand */}
+        <div className="flex items-center space-x-3">
+          {/* Mobile / Tablet Sidebar Toggle Button */}
+          {onToggleSidebar && !isAdminView && (
+            <button
+              onClick={onToggleSidebar}
+              className="lg:hidden flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#1c1f29] hover:bg-[#262a34] border border-[#262a34] text-[#4edea3] transition"
+              title="Abrir lista de canales"
+            >
+              <ListVideo className="w-4 h-4" />
+              <span className="text-xs font-mono font-bold">Canales</span>
+            </button>
+          )}
+
+          {/* Brand / Logo */}
+          <div
+            className="flex items-center space-x-2.5 cursor-pointer"
+            onClick={() => isAdminView && onToggleAdminView()}
+          >
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#10b981] to-[#00422b] flex items-center justify-center shadow-lg shadow-[#10b981]/20 flex-shrink-0">
+              <Tv className="w-5 h-5 text-[#0f131c]" />
             </div>
-            <p className="text-[11px] font-mono text-[#86948a] hidden sm:block">Strong IPTV • Exclusivo Fútbol</p>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-headline font-bold text-lg tracking-tight text-white">
+                  GOLSTREAM
+                </span>
+                <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-[#4edea3]/20 text-[#4edea3] border border-[#4edea3]/30">
+                  PRO
+                </span>
+              </div>
+              <p className="text-[10px] font-mono text-[#86948a] hidden sm:block">
+                Strong IPTV • Exclusivo Fútbol
+              </p>
+            </div>
           </div>
         </div>
 
@@ -67,7 +94,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {user.role === "admin" && (
             <button
               onClick={onToggleAdminView}
-              className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 isAdminView
                   ? "bg-[#4edea3] text-[#003824] font-semibold shadow-md shadow-[#4edea3]/20"
                   : "bg-[#1c1f29] hover:bg-[#262a34] text-[#dfe2ef] border border-[#3c4a42]"
@@ -80,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* User Profile Badge */}
           <div className="hidden sm:flex items-center space-x-2 pl-2 border-l border-[#262a34]">
-            <div className="w-8 h-8 rounded-full bg-[#1c1f29] border border-[#3c4a42] flex items-center justify-center text-xs font-bold text-[#4edea3]">
+            <div className="w-7 h-7 rounded-full bg-[#1c1f29] border border-[#3c4a42] flex items-center justify-center text-xs font-bold text-[#4edea3]">
               {user.name.substring(0, 2).toUpperCase()}
             </div>
             <div className="text-left">

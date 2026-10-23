@@ -1,6 +1,7 @@
 import React from "react";
 import { Channel } from "../types";
-import { Play, Heart, Radio, Activity } from "lucide-react";
+import { ChannelLogo } from "../utils/channelLogos";
+import { Play, Heart, Activity } from "lucide-react";
 
 interface ChannelCardProps {
   channel: Channel;
@@ -18,16 +19,16 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
   return (
     <div
       onClick={() => onSelect(channel)}
-      className={`group relative bg-[#1c1f29] hover:bg-[#262a34] border rounded-lg p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between ${
+      className={`group relative bg-[#1c1f29] hover:bg-[#262a34] border rounded-lg p-3.5 transition-all duration-200 cursor-pointer flex flex-col justify-between ${
         isCurrentPlaying
           ? "border-[#4edea3] shadow-lg shadow-[#4edea3]/20 ring-1 ring-[#4edea3]"
           : "border-[#262a34] hover:border-[#3c4a42]"
       }`}
     >
       {/* Top Bar: Live indicator + Favorite heart */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-[#0f131c] border border-[#262a34] text-[10px] font-mono font-bold text-[#4edea3]">
-          <span className="w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
+          <span className="w-1.5 h-1.5 rounded-full bg-[#4edea3] animate-pulse"></span>
           <span>EN VIVO</span>
         </div>
 
@@ -43,27 +44,14 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
               : "text-[#86948a] hover:text-white bg-[#0f131c]/60"
           }`}
         >
-          <Heart className={`w-4 h-4 ${channel.isFavorite ? "fill-current" : ""}`} />
+          <Heart className={`w-3.5 h-3.5 ${channel.isFavorite ? "fill-current" : ""}`} />
         </button>
       </div>
 
-      {/* Center: Channel Logo or Stadium fallback */}
-      <div className="flex items-center space-x-3 my-2">
-        <div className="w-12 h-12 rounded-lg bg-[#0f131c] border border-[#3c4a42] flex items-center justify-center p-1.5 overflow-hidden flex-shrink-0">
-          {channel.logoUrl ? (
-            <img
-              src={channel.logoUrl}
-              alt={channel.name}
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                // Fallback to icon if logo fails to load
-                (e.currentTarget as HTMLElement).style.display = "none";
-              }}
-            />
-          ) : (
-            <Radio className="w-6 h-6 text-[#4edea3]" />
-          )}
-        </div>
+      {/* Center: Smart Channel Logo + Channel details */}
+      <div className="flex items-center space-x-3 my-1">
+        <ChannelLogo channel={channel} size="md" />
+
         <div className="min-w-0 flex-1">
           <h3 className="font-headline font-semibold text-sm text-white group-hover:text-[#4edea3] transition truncate">
             {channel.name}
@@ -73,7 +61,7 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
       </div>
 
       {/* Bottom Bar: Action & Signal quality */}
-      <div className="mt-3 pt-3 border-t border-[#262a34] flex items-center justify-between text-xs">
+      <div className="mt-3 pt-2.5 border-t border-[#262a34] flex items-center justify-between text-xs">
         <span className="text-[10px] font-mono text-[#86948a] flex items-center">
           <Activity className="w-3 h-3 text-[#10b981] mr-1" />
           FHD 60FPS
