@@ -156,6 +156,16 @@ El APK resultante se generará en `mobile/android/app/build/outputs/apk/debug/ap
 
 ---
 
+## ⚖️ Descargo de Responsabilidad Legal (Disclaimer)
+
+GolStream Pro es un reproductor multimedia y suite de software desarrollada con fines educativos, de investigación técnica y gestión personal de medios.
+
+- **Sin contenido propio:** GolStream Pro no aloja, no distribuye, no retransmite ni suministra ninguna señal audiovisual, canal de televisión o lista de reproducción multimedia.
+- **Responsabilidad del usuario:** La configuración de servidores upstream, credenciales Xtream Codes y la legalidad del contenido al que se acceda mediante esta herramienta es responsabilidad exclusiva del usuario final.
+- **Marcas comerciales:** Todas las marcas, logotipos, nombres de canales y empresas mencionadas pertenecen a sus respectivos titulares y se utilizan únicamente con fines ilustrativos e identificativos bajo la doctrina de uso legítimo (*fair use*).
+
+---
+
 ## Contribución y Licencia
 
 Para pautas de desarrollo y convenciones de commits, consulta [CONTRIBUTING.md](CONTRIBUTING.md).
