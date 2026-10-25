@@ -18,15 +18,19 @@ GolStream Pro es una plataforma integral de alto rendimiento diseñada específi
 - **Validador de Cuentas IPTV**: Botón de prueba instantánea que valida la conexión contra la API Xtream (`player_api.php`).
 - **Gestor de Canales Deportivos**: Sincronización, renombrado, ordenamiento y activación/desactivación de canales de fútbol.
 
-### ⚽ Área de Usuario
-- **Experiencia Inmersiva**: Interfaz oscura deportiva moderna basada en el sistema de diseño oficial de Stitch (*GolStream Pro*).
-- **Buscador & Favoritos**: Filtro instantáneo de señales deportivas y marcación rápida de canales favoritos.
+### ⚽ Área de Usuario & Experiencia de Streaming
+- **Sidebar Vertical Translúcido (Diseño Stitch)**: Navegación basada en glassmorphism (`backdrop-blur-2xl bg-[#090d16]/80`), 100% vertical y completamente **ocultable/colapsable** con un clic para activar el **Modo Cine Expansivo** a pantalla completa.
+- **Guardián Anti-Congelamiento (Anti-Freeze Watchdog)**: Sistema de supervisión en tiempo real cada 2 segundos con auto-recuperación escalonada (salto de baches publicitarios PTS, nudges y sincronización con el punto en vivo) que previene pausas inesperadas.
+- **Buffer Suavizado para Chunks de 10s**: Configuración de búfer anticipado de 30 a 60 segundos que amortigua la latencia y la congestión del proveedor IPTV.
+- **Insignias Vectoriales de Canales**: Logos vectoriales oficiales SVG de 0 ms para todas las cadenas deportivas (Win Sports, DSPORTS / DIRECTV Sports, ESPN 1-4, Fox Sports, Champions League, DAZN, etc.), evitando cajas negras vacías por URLs upstream rotas.
+- **Buscador & Favoritos**: Filtro instantáneo de señales deportivas, agrupadas por ligas y torneos, con marcación rápida de canales favoritos.
 - **Reproductor HLS Avanzado**: Selección adaptativa de bitrate (calidad), selector de pistas de audio, control de volumen, pantalla completa y reconexión automática ante microcortes.
 - **Avisos de Suscripción**: Notificaciones visuales cuando la suscripción se aproxima a expirar o se encuentra vencida.
 
 ### 🌐 Streaming Proxy (Solución a Mixed-Content & CORS)
-- Resuelve de raíz el bloqueo de navegadores cuando el stream IPTV proviene de servidores HTTP inseguros, sirviendo manifiestos y fragmentos mediante un túnel proxy HTTPS seguro.
+- Resuelve de raíz el bloqueo de navegadores cuando el stream IPTV proviene de servidores HTTP inseguros, sirviendo manifiestos y fragmentos mediante un túnel proxy HTTPS seguro con Keep-Alive y reintento resiliente.
 - Protege las credenciales de la cuenta IPTV evitando que el usuario final inspeccione las URLs maestras del proveedor.
+- Tokens de streaming firmados por HMAC con 24 horas de vigencia ininterrumpida.
 
 ---
 
@@ -119,6 +123,17 @@ El script comprueba:
 - Descarga efectiva de segmentos de video.
 - Detección de pistas de audio activas y verificación de no-silencio.
 - Latencia de arranque y genera una tabla resumen con los resultados.
+
+---
+
+## Credenciales de Prueba
+
+Al ejecutar el seeder (`npm run seed`), la base de datos se inicializa con los siguientes usuarios de prueba:
+
+| Rol | Correo Electrónico | Contraseña | Descripción |
+| :--- | :--- | :--- | :--- |
+| **Administrador** | `admin@golstream.pro` | `AdminSecurePassword2026!` | Acceso completo al Panel de Administración (`/admin`), control de usuarios, suscripciones y configuración IPTV. |
+| **Suscriptor** | `usuario@golstream.pro` | `UserSecure123!` | Cuenta de usuario con 30 días de suscripción activa y acceso a todos los canales en vivo. |
 
 ---
 

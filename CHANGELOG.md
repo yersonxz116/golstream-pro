@@ -4,6 +4,31 @@ Todas las modificaciones notables de este proyecto se documentarán en este arch
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-25
+### Added
+- **Motor Anti-Congelamiento (Anti-Freeze Watchdog)**:
+  - Guardián activo de reproducción que evalúa el progreso del stream cada 2000 ms.
+  - Recuperación escalonada ante congelamientos:
+    - *Nivel 1 (2-3s)*: Nudge de +250 ms hacia adelante para superar baches de timestamp (PTS/DTS) producidos durante cortes publicitarios.
+    - *Nivel 2 (4-6s)*: Salto al punto en vivo (`liveSyncPosition`) y recarga inmediata de búfer.
+    - *Nivel 3 (Fallo profundo)*: Recuperación automática del decodificador multimedia (`recoverMediaError()`) sin desconectar al usuario ni requerir recargar la página.
+- **Optimización de Buffer para Segmentos IPTV de 10s**:
+  - Ajuste de `maxBufferLength` a 30 segundos (3 segmentos completos de anticipación) y `maxMaxBufferLength: 60`.
+  - Desactivación de `lowLatencyMode` agresivo para flujos de 10 segundos, estabilizando la continuidad y eliminando caídas de búfer.
+  - Salto automático de baches publicitarios con `maxBufferHole: 3` y `highBufferWatchdogPeriod: 2`.
+- **Resiliencia en el Proxy Backend**:
+  - Reintento transparente con conexión limpia ante fluctuaciones o caídas temporales del servidor IPTV upstream en `/chunk` y `/index.m3u8`.
+  - Ampliación de vigencia del token de transmisión firmado (`STREAM_TOKEN_SECRET`) a 24 horas ininterrumpidas.
+- **Rediseño UI Stitch: Sidebar Vertical Translúcido y Ocultable**:
+  - Interfaz basada en el sistema de diseño Stitch (*GolStream Pro*): efecto glassmorphism con `backdrop-blur-2xl bg-[#090d16]/80` y bordes sutiles `border-white/[0.08]`.
+  - Capacidad de ocultar/colapsar el sidebar vertical en 1 clic para disfrutar del **Modo Cine Expansivo** a pantalla completa (100% de ancho).
+  - Píldora flotante e indicadores en navbar para alternar la visibilidad de canales en escritorio y dispositivos móviles.
+  - Flujo de navegación estrictamente vertical: buscador en tiempo real, acordeón selector de categorías con conteo de señales y switch de favoritos.
+- **Insignias Vectoriales Oficiales para Canales sin Logo**:
+  - Sistema de renderizado vectorial SVG de 0 ms para canales con URLs caídas o vacías: Win Sports, Win Sports+, DIRECTV Sports (DSPORTS 1, DSPORTS HD, DSPORTS Argentina), ESPN 1-4, Fox Sports, UEFA Champions League, DAZN, Movistar+, TNT Sports, TyC Sports, Premier League y LaLiga.
+- **Canales Prioritarios Integrados**:
+  - Sincronización y categorización destacada de señales lineales oficiales de la UEFA Champions League y DIRECTV Sports (DSPORTS).
+
 ## [1.0.0] - 2026-10-23
 ### Added
 - **Backend API & Middleware**:
