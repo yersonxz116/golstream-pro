@@ -59,14 +59,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [mutedByPolicy, setMutedByPolicy] = useState(false);
   const [liveLatency, setLiveLatency] = useState<number>(0);
 
-  // Jump directly to the real-time live edge (elimina cualquier retraso acumulado)
+  // Jump directly to the real-time live edge (elimina cualquier retraso acumulado de forma segura)
   const syncToLive = () => {
     const video = videoRef.current;
     const hls = hlsRef.current;
     if (!video) return;
 
     if (hls?.liveSyncPosition) {
-      video.currentTime = hls.liveSyncPosition;
+      video.currentTime = Math.max(0, hls.liveSyncPosition - 3);
       setLiveLatency(0);
     } else if (video.duration && isFinite(video.duration)) {
       video.currentTime = Math.max(0, video.duration - 8);
@@ -86,7 +86,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       playPromise
         .then(() => {
           setIsPlaying(true);
-          setIsLoading(false);
+          if (video.readyState >= 2) setIsLoading(false);
         })
         .catch((err) => {
           console.warn("[VideoPlayer] Autoplay con audio bloqueado por el navegador. Intentando inicio silenciado...", err);
@@ -98,7 +98,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             .play()
             .then(() => {
               setIsPlaying(true);
-              setIsLoading(false);
+              if (video.readyState >= 2) setIsLoading(false);
             })
             .catch(() => {
               // Fallback 2: Esperar clic del usuario sin dejar el spinner congelado
@@ -148,16 +148,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           lastTimeRef.current = video.currentTime;
         }
 
-        // Real-time live delay tracking and auto-catchup
-        if (hls?.liveSyncPosition && video.currentTime) {
+        // Real-time live delay tracking and auto-catchup (solo cuando ya esté reproduciendo)
+        if (hls?.liveSyncPosition && video.currentTime > 5) {
           const delay = Math.max(0, Math.round(hls.liveSyncPosition - video.currentTime));
           setLiveLatency(delay);
 
-          // Auto-snap to live edge if delay exceeds 16 seconds
-          if (delay > 16 && !isUserPausedRef.current) {
+          // Auto-snap to live edge con cooldown si el retraso acumulado supera los 60 segundos
+          if (delay > 60 && !isUserPausedRef.current) {
             console.info(`[Anti-Freeze Watchdog] Auto-sincronizando al vivo (retraso acumulado: ${delay}s)...`);
-            video.currentTime = hls.liveSyncPosition;
-            setLiveLatency(0);
+            video.currentTime = Math.max(0, hls.liveSyncPosition - 4);
+            setLiveLatency(4);
           }
         }
       } else if (!isUserPausedRef.current && video.readyState >= 2) {
@@ -248,22 +248,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 15,
-        maxBufferLength: 8, // Mantener buffer corto para no acumular latencia
-        maxMaxBufferLength: 16,
-        maxBufferSize: 30 * 1000 * 1000,
-        liveSyncDurationCount: 2, // Reducido de 3 a 2 fragmentos (recorta ~10-15s de latencia)
-        liveSyncDuration: 6, // Objetivo de 6s del borde en vivo
-        liveMaxLatencyDuration: 14, // Si se aleja más de 14s, acelera o salta
-        maxLiveSyncPlaybackRate: 1.2, // Aceleración suave 1.2x para alcanzar el vivo
+        lowLatencyMode: false,
+        backBufferLength: 30,
+        maxBufferLength: 20, // 20s forward buffer (2 segmentos completos de 10s)
+        maxMaxBufferLength: 40,
+        maxBufferSize: 60 * 1000 * 1000,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 6,
+        maxLiveSyncPlaybackRate: 1.15, // Aceleración suave 1.15x sin cortes
         liveDurationInfinity: true,
         startFragPrefetch: true,
         highBufferWatchdogPeriod: 2,
-        maxBufferHole: 3, // Auto-skip PTS holes up to 3s (commercials)
-        nudgeOffset: 0.2,
+        maxBufferHole: 3, // Auto-skip baches PTS de hasta 3s
+        nudgeOffset: 0.25,
         nudgeMaxRetry: 10,
-        maxFragLookUpTolerance: 0.25,
+        maxFragLookUpTolerance: 0.3,
         manifestLoadingTimeOut: 12000,
         manifestLoadingMaxRetry: 4,
         manifestLoadingRetryDelay: 800,
@@ -279,18 +278,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
 
-      // Auto-jump to live edge when manifest/level is loaded
-      hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
-        if (data.details.live) {
-          const liveEdge = hls.liveSyncPosition;
-          if (liveEdge && Math.abs(liveEdge - video.currentTime) > 22 && !isUserPausedRef.current) {
-            console.info(`[VideoPlayer] Auto-snapping a live edge al cargar nivel (retraso: ${Math.round(liveEdge - video.currentTime)}s)`);
-            video.currentTime = liveEdge;
-            setLiveLatency(0);
-          }
-        }
-      });
-
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
         setIsLoading(false);
       });
@@ -300,7 +287,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
-        setIsLoading(false);
         safePlay();
 
         // Parse quality levels
@@ -503,7 +489,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       />
 
       {/* Top Header Overlay */}
-      <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 pointer-events-auto">
+      <div
+        className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-300 z-20 pointer-events-auto ${
+          isLoading || !isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      >
         <div className="flex items-center space-x-3">
           {/* Interactive Live Sync Badge */}
           {liveLatency <= 20 ? (
@@ -619,7 +609,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Bottom Controls Overlay */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20"
+        className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent transition-opacity duration-300 z-20 ${
+          !isPlaying ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
       >
         <div className="flex items-center justify-between text-white">
           {/* Left Controls: Play/Pause, Volume */}
