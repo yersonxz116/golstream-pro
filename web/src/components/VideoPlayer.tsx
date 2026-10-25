@@ -57,6 +57,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [mutedByPolicy, setMutedByPolicy] = useState(false);
+  const [liveLatency, setLiveLatency] = useState<number>(0);
+
+  // Jump directly to the real-time live edge (elimina cualquier retraso acumulado)
+  const syncToLive = () => {
+    const video = videoRef.current;
+    const hls = hlsRef.current;
+    if (!video) return;
+
+    if (hls?.liveSyncPosition) {
+      video.currentTime = hls.liveSyncPosition;
+      setLiveLatency(0);
+    } else if (video.duration && isFinite(video.duration)) {
+      video.currentTime = Math.max(0, video.duration - 8);
+      setLiveLatency(0);
+    }
+    safePlay();
+  };
 
   // Safe play engine with automatic muted fallback if browser blocks unmuted autoplay
   const safePlay = () => {
@@ -129,6 +146,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         } else {
           frozenTicksRef.current = 0;
           lastTimeRef.current = video.currentTime;
+        }
+
+        // Real-time live delay tracking and auto-catchup
+        if (hls?.liveSyncPosition && video.currentTime) {
+          const delay = Math.max(0, Math.round(hls.liveSyncPosition - video.currentTime));
+          setLiveLatency(delay);
+
+          // Auto-snap to live edge if delay exceeds 25 seconds
+          if (delay > 25 && !isUserPausedRef.current) {
+            console.info(`[Anti-Freeze Watchdog] Auto-sincronizando al vivo (retraso acumulado: ${delay}s)...`);
+            video.currentTime = hls.liveSyncPosition;
+            setLiveLatency(0);
+          }
         }
       } else if (!isUserPausedRef.current && video.readyState >= 2) {
         // Video paused unexpectedly (e.g. browser ad pause or packet drop)
@@ -220,11 +250,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         enableWorker: true,
         lowLatencyMode: false,
         backBufferLength: 30,
-        maxBufferLength: 20, // 20s forward buffer ensures zero stalls and fast startup
-        maxMaxBufferLength: 40,
+        maxBufferLength: 15, // Forward buffer optimal for fast live edge catch-up
+        maxMaxBufferLength: 30,
         maxBufferSize: 60 * 1000 * 1000,
-        liveSyncDurationCount: 2, // 2 segments distance from live edge
-        liveMaxLatencyDurationCount: 5,
+        liveSyncDuration: 8, // Target 8s from real-time live edge for sub-minute latency
+        liveMaxLatencyDuration: 20, // Max allowed delay before auto-seek
+        maxLiveSyncPlaybackRate: 1.15, // Smooth 1.15x acceleration catch-up
         liveDurationInfinity: true,
         startFragPrefetch: true,
         highBufferWatchdogPeriod: 2,
@@ -246,6 +277,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
+
+      // Auto-jump to live edge when manifest/level is loaded
+      hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
+        if (data.details.live) {
+          const liveEdge = hls.liveSyncPosition;
+          if (liveEdge && Math.abs(liveEdge - video.currentTime) > 22 && !isUserPausedRef.current) {
+            console.info(`[VideoPlayer] Auto-snapping a live edge al cargar nivel (retraso: ${Math.round(liveEdge - video.currentTime)}s)`);
+            video.currentTime = liveEdge;
+            setLiveLatency(0);
+          }
+        }
+      });
 
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
         setIsLoading(false);
@@ -461,11 +504,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Top Header Overlay */}
       <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 pointer-events-auto">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#0f131c]/90 border border-[#4edea3]/40 text-xs font-mono font-bold text-[#4edea3]">
-            <span className="w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
-            <span>TRANSMISIÓN EN VIVO</span>
-          </div>
-          <span className="font-headline font-bold text-base text-white drop-shadow">{channel.name}</span>
+          {/* Interactive Live Sync Badge */}
+          {liveLatency <= 20 ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                syncToLive();
+              }}
+              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#10b981]/25 hover:bg-[#10b981]/40 border border-[#4edea3]/50 text-xs font-mono font-bold text-[#4edea3] transition cursor-pointer"
+              title="Sincronizado con la señal en directo. Clic para forzar sincronización"
+            >
+              <span className="w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
+              <span>EN VIVO {liveLatency > 0 ? `(-${liveLatency}s)` : ""}</span>
+            </button>
+          ) : (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                syncToLive();
+              }}
+              className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#f59e0b]/30 hover:bg-[#f59e0b]/50 border border-[#f59e0b]/60 text-xs font-mono font-bold text-[#fbbf24] animate-pulse transition shadow-lg cursor-pointer"
+              title="Retrasado respecto a la señal en directo. Clic para saltar al tiempo real"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>RETRASADO (-{liveLatency}s) • IR AL VIVO</span>
+            </button>
+          )}
+
+          <span className="font-headline font-bold text-base text-white drop-shadow truncate max-w-sm sm:max-w-md">
+            {channel.name}
+          </span>
           <span className="text-xs text-[#86948a] font-mono hidden sm:inline">({channel.category})</span>
         </div>
 
@@ -576,6 +644,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 className="w-20 sm:w-28 h-1.5 bg-[#262a34] accent-[#4edea3] rounded-lg cursor-pointer"
               />
             </div>
+
+            {/* Quick Live Sync button in bottom bar */}
+            <button
+              onClick={syncToLive}
+              className={`hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold transition ${
+                liveLatency <= 20
+                  ? "bg-[#10b981]/20 text-[#4edea3] hover:bg-[#10b981]/35 border border-[#10b981]/40"
+                  : "bg-[#f59e0b]/30 text-[#fbbf24] hover:bg-[#f59e0b]/50 border border-[#f59e0b]/60 animate-pulse"
+              }`}
+              title="Sincronizar al punto en vivo"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${liveLatency <= 20 ? "bg-[#4edea3] animate-pulse" : "bg-[#fbbf24]"}`}></span>
+              <span>LIVE {liveLatency > 0 ? `(-${liveLatency}s)` : ""}</span>
+            </button>
           </div>
 
           {/* Right Controls: Quality, Audio, Fullscreen */}

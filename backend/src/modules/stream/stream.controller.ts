@@ -74,27 +74,35 @@ export class StreamController {
 
       const upstreamUrl = XtreamService.buildHlsUrl(host, username, password, streamId);
 
-      // 4. Fetch upstream manifest with automatic retry
+      // 4. Fetch upstream manifest with fresh cache-busting to guarantee absolute real-time live edge
+      const freshUpstreamUrl = upstreamUrl.includes("?")
+        ? `${upstreamUrl}&_t=${Date.now()}`
+        : `${upstreamUrl}?_t=${Date.now()}`;
+
       let upstreamResponse;
       try {
-        upstreamResponse = await axios.get<string>(upstreamUrl, {
+        upstreamResponse = await axios.get<string>(freshUpstreamUrl, {
           responseType: "text",
           timeout: 10000,
           httpAgent,
           httpsAgent,
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
             Connection: "keep-alive",
           },
         });
       } catch (err: unknown) {
         // Fast retry with a direct connection if keep-alive pool timed out
         try {
-          upstreamResponse = await axios.get<string>(upstreamUrl, {
+          upstreamResponse = await axios.get<string>(freshUpstreamUrl, {
             responseType: "text",
             timeout: 12000,
             headers: {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              "Pragma": "no-cache",
               Connection: "close",
             },
           });
@@ -136,7 +144,9 @@ export class StreamController {
 
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       res.send(rewrittenLines.join("\n"));
     } catch (err: unknown) {
       console.error("Stream Proxy Error:", err);
