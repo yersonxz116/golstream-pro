@@ -153,8 +153,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           const delay = Math.max(0, Math.round(hls.liveSyncPosition - video.currentTime));
           setLiveLatency(delay);
 
-          // Auto-snap to live edge if delay exceeds 25 seconds
-          if (delay > 25 && !isUserPausedRef.current) {
+          // Auto-snap to live edge if delay exceeds 16 seconds
+          if (delay > 16 && !isUserPausedRef.current) {
             console.info(`[Anti-Freeze Watchdog] Auto-sincronizando al vivo (retraso acumulado: ${delay}s)...`);
             video.currentTime = hls.liveSyncPosition;
             setLiveLatency(0);
@@ -248,14 +248,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: false,
-        backBufferLength: 30,
-        maxBufferLength: 15, // Forward buffer optimal for fast live edge catch-up
-        maxMaxBufferLength: 30,
-        maxBufferSize: 60 * 1000 * 1000,
-        liveSyncDuration: 8, // Target 8s from real-time live edge for sub-minute latency
-        liveMaxLatencyDuration: 20, // Max allowed delay before auto-seek
-        maxLiveSyncPlaybackRate: 1.15, // Smooth 1.15x acceleration catch-up
+        lowLatencyMode: true,
+        backBufferLength: 15,
+        maxBufferLength: 8, // Mantener buffer corto para no acumular latencia
+        maxMaxBufferLength: 16,
+        maxBufferSize: 30 * 1000 * 1000,
+        liveSyncDurationCount: 2, // Reducido de 3 a 2 fragmentos (recorta ~10-15s de latencia)
+        liveSyncDuration: 6, // Objetivo de 6s del borde en vivo
+        liveMaxLatencyDuration: 14, // Si se aleja más de 14s, acelera o salta
+        maxLiveSyncPlaybackRate: 1.2, // Aceleración suave 1.2x para alcanzar el vivo
         liveDurationInfinity: true,
         startFragPrefetch: true,
         highBufferWatchdogPeriod: 2,
