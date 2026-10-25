@@ -12,7 +12,6 @@ import {
   Sliders,
   X,
   AlertCircle,
-  Radio,
   AudioLines,
 } from "lucide-react";
 
@@ -42,6 +41,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isUserPausedRef = useRef<boolean>(false);
   const lastTimeRef = useRef<number>(0);
   const frozenTicksRef = useRef<number>(0);
+  const waitingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
@@ -56,6 +56,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [mutedByPolicy, setMutedByPolicy] = useState(false);
+
+  // Safe play engine with automatic muted fallback if browser blocks unmuted autoplay
+  const safePlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    isUserPausedRef.current = false;
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setIsPlaying(true);
+          setIsLoading(false);
+        })
+        .catch((err) => {
+          console.warn("[VideoPlayer] Autoplay con audio bloqueado por el navegador. Intentando inicio silenciado...", err);
+          // Fallback 1: Autoplay silenciado (los navegadores siempre lo permiten sin interacción)
+          video.muted = true;
+          setIsMuted(true);
+          setMutedByPolicy(true);
+          video
+            .play()
+            .then(() => {
+              setIsPlaying(true);
+              setIsLoading(false);
+            })
+            .catch(() => {
+              // Fallback 2: Esperar clic del usuario sin dejar el spinner congelado
+              setIsPlaying(false);
+              setIsLoading(false);
+            });
+        });
+    }
+  };
 
   // Active Anti-Freeze Watchdog (Guardián de Continuidad en Vivo)
   useEffect(() => {
@@ -68,15 +103,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (!video.paused) {
         if (video.currentTime === lastTimeRef.current && video.readyState >= 2) {
           frozenTicksRef.current += 1;
-          console.warn(
-            `[Anti-Freeze Watchdog] Stream sin avance en ${video.currentTime.toFixed(2)}s (congelado ${frozenTicksRef.current * 2}s)`
-          );
 
           if (frozenTicksRef.current === 2) {
             // Level 1: Nudge forward past PTS gap / ad transition hole
             console.info("[Anti-Freeze Watchdog] Nudgeando 250ms hacia adelante para saltar bache PTS...");
             video.currentTime += 0.25;
-            video.play().catch(() => {});
+            safePlay();
           } else if (frozenTicksRef.current === 3) {
             // Level 2: Jump to live edge
             console.info("[Anti-Freeze Watchdog] Saltando al punto en vivo (live edge)...");
@@ -86,13 +118,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               video.currentTime += 1.0;
             }
             hls?.startLoad();
-            video.play().catch(() => {});
+            safePlay();
           } else if (frozenTicksRef.current >= 5) {
             // Level 3: Soft media recovery
             console.warn("[Anti-Freeze Watchdog] Ejecutando recuperación profunda de stream...");
             frozenTicksRef.current = 0;
             hls?.recoverMediaError();
-            video.play().catch(() => {});
+            safePlay();
           }
         } else {
           frozenTicksRef.current = 0;
@@ -100,8 +132,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       } else if (!isUserPausedRef.current && video.readyState >= 2) {
         // Video paused unexpectedly (e.g. browser ad pause or packet drop)
-        console.warn("[Anti-Freeze Watchdog] Video pausado automáticamente sin orden del usuario. Reanudando...");
-        video.play().catch(() => {});
+        safePlay();
       }
     }, 2000);
 
@@ -113,12 +144,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
-    const handleWaiting = () => setIsLoading(true);
+    const handleWaiting = () => {
+      // Debounce loading indicator: only show if buffering takes > 800ms
+      if (waitingTimeoutRef.current) clearTimeout(waitingTimeoutRef.current);
+      waitingTimeoutRef.current = setTimeout(() => {
+        if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState < 3) {
+          setIsLoading(true);
+        }
+      }, 800);
+    };
+
     const handlePlaying = () => {
+      if (waitingTimeoutRef.current) clearTimeout(waitingTimeoutRef.current);
       setIsLoading(false);
       setIsPlaying(true);
       setErrorMessage(null);
     };
+
+    const handleCanPlay = () => {
+      if (waitingTimeoutRef.current) clearTimeout(waitingTimeoutRef.current);
+      setIsLoading(false);
+    };
+
+    const handleLoadedData = () => {
+      if (waitingTimeoutRef.current) clearTimeout(waitingTimeoutRef.current);
+      setIsLoading(false);
+    };
+
+    const handleTimeUpdate = () => {
+      if (waitingTimeoutRef.current) clearTimeout(waitingTimeoutRef.current);
+      setIsLoading(false);
+    };
+
     const handleStalled = () => {
       if (!isUserPausedRef.current && hlsRef.current) {
         hlsRef.current.startLoad();
@@ -127,11 +184,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     video.addEventListener("waiting", handleWaiting);
     video.addEventListener("playing", handlePlaying);
+    video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("loadeddata", handleLoadedData);
+    video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("stalled", handleStalled);
 
     return () => {
+      if (waitingTimeoutRef.current) clearTimeout(waitingTimeoutRef.current);
       video.removeEventListener("waiting", handleWaiting);
       video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("stalled", handleStalled);
     };
   }, []);
@@ -154,31 +218,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        // Standard IPTV uses 10s TS chunks; lowLatencyMode: false gives rock-solid buffer smoothing
         lowLatencyMode: false,
         backBufferLength: 30,
-        maxBufferLength: 30, // 30s forward buffer prevents underruns during ad breaks & jitter
-        maxMaxBufferLength: 60,
+        maxBufferLength: 20, // 20s forward buffer ensures zero stalls and fast startup
+        maxMaxBufferLength: 40,
         maxBufferSize: 60 * 1000 * 1000,
-        liveSyncDurationCount: 3, // Safe live distance (30s)
-        liveMaxLatencyDurationCount: 6,
+        liveSyncDurationCount: 2, // 2 segments distance from live edge
+        liveMaxLatencyDurationCount: 5,
         liveDurationInfinity: true,
         startFragPrefetch: true,
-        // Gap jumping & PTS discontinuity tolerance
         highBufferWatchdogPeriod: 2,
-        maxBufferHole: 3, // Auto-skip PTS holes up to 3s (commercials/audio switches)
+        maxBufferHole: 3, // Auto-skip PTS holes up to 3s (commercials)
         nudgeOffset: 0.2,
         nudgeMaxRetry: 10,
         maxFragLookUpTolerance: 0.25,
-        // Resilient loading timeouts and retries
-        manifestLoadingTimeOut: 15000,
-        manifestLoadingMaxRetry: 5,
-        manifestLoadingRetryDelay: 1000,
-        levelLoadingTimeOut: 15000,
-        levelLoadingMaxRetry: 5,
-        fragLoadingTimeOut: 20000,
-        fragLoadingMaxRetry: 6,
-        fragLoadingRetryDelay: 1000,
+        manifestLoadingTimeOut: 12000,
+        manifestLoadingMaxRetry: 4,
+        manifestLoadingRetryDelay: 800,
+        levelLoadingTimeOut: 12000,
+        levelLoadingMaxRetry: 4,
+        fragLoadingTimeOut: 15000,
+        fragLoadingMaxRetry: 5,
+        fragLoadingRetryDelay: 800,
       });
 
       hlsRef.current = hls;
@@ -190,11 +251,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setIsLoading(false);
       });
 
+      hls.on(Hls.Events.FRAG_PARSED, () => {
+        setIsLoading(false);
+      });
+
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
         setIsLoading(false);
-        video.play().catch(() => {
-          setIsPlaying(false);
-        });
+        safePlay();
 
         // Parse quality levels
         if (data.levels && data.levels.length > 0) {
@@ -227,11 +290,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       hls.on(Hls.Events.ERROR, (_event, data) => {
         console.warn("[Hls Event]", data.type, data.details, "fatal:", data.fatal);
 
-        // Auto-nudge on non-fatal buffer stalls (ad insertion / PTS gap)
         if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
           if (video && !video.paused && !isUserPausedRef.current) {
             video.currentTime += 0.2;
-            video.play().catch(() => {});
+            safePlay();
           }
         }
 
@@ -240,22 +302,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           data.details === Hls.ErrorDetails.BUFFER_SEEK_OVER_HOLE
         ) {
           if (video && !video.paused && !isUserPausedRef.current) {
-            video.play().catch(() => {});
+            safePlay();
           }
         }
 
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              console.warn("[Hls Error] Error de red fatal. Reiniciando carga de segmentos...");
+              console.warn("[Hls Error] Error de red fatal. Reiniciando carga...");
               hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              console.warn("[Hls Error] Error de decodificación fatal. Recuperando buffer...");
+              console.warn("[Hls Error] Error de decodificación. Recuperando buffer...");
               hls.recoverMediaError();
               break;
             default:
-              console.error("[Hls Error] Error fatal crítico. Reconectando stream automáticamente...");
+              console.error("[Hls Error] Error crítico. Reconectando stream...");
               setRetryCount((prev) => prev + 1);
               break;
           }
@@ -266,7 +328,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.src = streamUrl;
       video.addEventListener("loadedmetadata", () => {
         setIsLoading(false);
-        video.play().catch(() => setIsPlaying(false));
+        safePlay();
       });
     } else {
       setErrorMessage("Tu navegador no soporta reproducción HLS.");
@@ -307,8 +369,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video) return;
     if (video.paused) {
       isUserPausedRef.current = false;
-      video.play().catch(() => {});
-      setIsPlaying(true);
+      safePlay();
     } else {
       isUserPausedRef.current = true;
       video.pause();
@@ -321,6 +382,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video) return;
     video.muted = !video.muted;
     setIsMuted(video.muted);
+    if (!video.muted) {
+      setMutedByPolicy(false);
+    }
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -331,6 +395,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.volume = val;
       video.muted = val === 0;
       setIsMuted(val === 0);
+      if (val > 0) {
+        setMutedByPolicy(false);
+      }
     }
   };
 
@@ -363,25 +430,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setRetryCount((prev) => prev + 1);
   };
 
+  const handleContainerClick = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (mutedByPolicy) {
+      video.muted = false;
+      setIsMuted(false);
+      setMutedByPolicy(false);
+    }
+
+    if (video.paused) {
+      safePlay();
+    }
+  };
+
   return (
     <div
       ref={containerRef}
-      className="relative bg-black rounded-xl overflow-hidden shadow-2xl border border-[#262a34] group"
+      onClick={handleContainerClick}
+      className="relative bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/[0.08] group cursor-pointer"
     >
       {/* Video Element */}
       <video
         ref={videoRef}
         className="w-full aspect-video object-contain bg-black"
         playsInline
-        onClick={togglePlay}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
       />
 
       {/* Top Header Overlay */}
-      <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
+      <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 pointer-events-auto">
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-[#0f131c]/90 border border-[#4edea3]/40 text-xs font-mono font-bold text-[#4edea3]">
+          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#0f131c]/90 border border-[#4edea3]/40 text-xs font-mono font-bold text-[#4edea3]">
             <span className="w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></span>
             <span>TRANSMISIÓN EN VIVO</span>
           </div>
@@ -390,33 +470,76 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
 
         <button
-          onClick={onClose}
-          className="p-1.5 rounded-lg bg-black/60 hover:bg-black/90 text-white hover:text-[#ef4444] transition"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="p-1.5 rounded-xl bg-black/60 hover:bg-black/90 text-white hover:text-[#ef4444] transition"
           title="Cerrar reproductor"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Loading Spinner */}
+      {/* Browser Muted Autoplay Warning Banner */}
+      {mutedByPolicy && isPlaying && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            const video = videoRef.current;
+            if (video) {
+              video.muted = false;
+              setIsMuted(false);
+              setMutedByPolicy(false);
+            }
+          }}
+          className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 rounded-full bg-[#10b981]/25 hover:bg-[#10b981]/40 border border-[#4edea3]/60 backdrop-blur-xl text-white text-xs font-mono font-bold flex items-center space-x-2 shadow-2xl transition animate-bounce cursor-pointer"
+        >
+          <VolumeX className="w-4 h-4 text-[#4edea3]" />
+          <span>Audio silenciado por el navegador. Haz clic para activar sonido</span>
+        </div>
+      )}
+
+      {/* Big Center Play Trigger (When video is paused and not buffering) */}
+      {!isPlaying && !isLoading && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            safePlay();
+          }}
+          className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-xs z-15 transition"
+        >
+          <div className="w-20 h-20 rounded-full bg-[#10b981]/25 hover:bg-[#10b981]/40 border-2 border-[#4edea3] flex items-center justify-center text-[#4edea3] shadow-2xl hover:scale-105 transition-all">
+            <Play className="w-9 h-9 fill-current ml-1" />
+          </div>
+          <span className="mt-3 px-4 py-1.5 rounded-full bg-black/70 border border-white/10 text-white text-xs font-mono font-semibold tracking-wider">
+            Clic para reproducir señal
+          </span>
+        </div>
+      )}
+
+      {/* Loading Spinner with pointer-events-none so it NEVER blocks user clicks */}
       {isLoading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
-          <div className="w-12 h-12 border-4 border-[#1c1f29] border-t-[#4edea3] rounded-full animate-spin mb-3"></div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10 pointer-events-none">
+          <div className="w-12 h-12 border-4 border-white/10 border-t-[#4edea3] rounded-full animate-spin mb-3"></div>
           <p className="text-sm font-mono text-[#4edea3]">Sintonizando señal de fútbol...</p>
         </div>
       )}
 
       {/* Error / Reconnect Banner */}
       {errorMessage && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm z-10 p-6 text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md z-30 p-6 text-center">
           <AlertCircle className="w-12 h-12 text-[#f59e0b] mb-2" />
           <p className="text-sm font-semibold text-white mb-1">{errorMessage}</p>
           <p className="text-xs text-[#86948a] font-mono mb-4">
             Reintentando conectar automáticamente al servidor IPTV...
           </p>
           <button
-            onClick={handleManualRetry}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-[#4edea3] hover:bg-[#10b981] text-[#003824] rounded-lg text-xs font-bold transition"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleManualRetry();
+            }}
+            className="flex items-center space-x-1.5 px-4 py-2 bg-[#4edea3] hover:bg-[#10b981] text-[#003824] rounded-xl text-xs font-mono font-bold transition shadow-lg"
           >
             <RotateCcw className="w-4 h-4" />
             <span>Forzar Reconexión</span>
@@ -425,13 +548,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       )}
 
       {/* Bottom Controls Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20"
+      >
         <div className="flex items-center justify-between text-white">
           {/* Left Controls: Play/Pause, Volume */}
           <div className="flex items-center space-x-4">
             <button
               onClick={togglePlay}
-              className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-[#4edea3] transition"
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-[#4edea3] transition"
             >
               {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
             </button>
@@ -460,21 +586,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <button
                   onClick={() => setShowAudioMenu(!showAudioMenu)}
                   title="Pistas de Audio"
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-black/60 hover:bg-black/90 border border-[#3c4a42] text-xs font-mono"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-black/60 hover:bg-black/90 border border-white/10 text-xs font-mono"
                 >
                   <AudioLines className="w-3.5 h-3.5 text-[#4edea3]" />
                   <span>Audio</span>
                 </button>
                 {showAudioMenu && (
-                  <div className="absolute bottom-10 right-0 bg-[#1c1f29] border border-[#3c4a42] rounded-lg shadow-xl p-1 min-w-[140px] z-30 font-mono text-xs">
+                  <div className="absolute bottom-10 right-0 bg-[#090d16] border border-white/10 rounded-xl shadow-2xl p-1 min-w-[140px] z-30 font-mono text-xs backdrop-blur-xl">
                     {audioTracks.map((track) => (
                       <button
                         key={track.id}
                         onClick={() => selectAudioTrack(track.id)}
-                        className={`w-full text-left px-3 py-1.5 rounded transition ${
+                        className={`w-full text-left px-3 py-1.5 rounded-lg transition ${
                           currentAudioTrack === track.id
-                            ? "bg-[#4edea3]/20 text-[#4edea3] font-bold"
-                            : "hover:bg-[#262a34] text-[#dfe2ef]"
+                            ? "bg-[#10b981]/20 text-[#4edea3] font-bold"
+                            : "hover:bg-white/5 text-[#dfe2ef]"
                         }`}
                       >
                         {track.name}
@@ -490,7 +616,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button
                 onClick={() => setShowQualityMenu(!showQualityMenu)}
                 title="Calidad de video"
-                className="flex items-center space-x-1 px-2.5 py-1 rounded bg-black/60 hover:bg-black/90 border border-[#3c4a42] text-xs font-mono"
+                className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-black/60 hover:bg-black/90 border border-white/10 text-xs font-mono"
               >
                 <Sliders className="w-3.5 h-3.5 text-[#4edea3]" />
                 <span>
@@ -501,13 +627,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </button>
 
               {showQualityMenu && (
-                <div className="absolute bottom-10 right-0 bg-[#1c1f29] border border-[#3c4a42] rounded-lg shadow-xl p-1 min-w-[120px] z-30 font-mono text-xs">
+                <div className="absolute bottom-10 right-0 bg-[#090d16] border border-white/10 rounded-xl shadow-2xl p-1 min-w-[120px] z-30 font-mono text-xs backdrop-blur-xl">
                   <button
                     onClick={() => selectQuality(-1)}
-                    className={`w-full text-left px-3 py-1.5 rounded transition ${
+                    className={`w-full text-left px-3 py-1.5 rounded-lg transition ${
                       currentQuality === -1
-                        ? "bg-[#4edea3]/20 text-[#4edea3] font-bold"
-                        : "hover:bg-[#262a34] text-[#dfe2ef]"
+                        ? "bg-[#10b981]/20 text-[#4edea3] font-bold"
+                        : "hover:bg-white/5 text-[#dfe2ef]"
                     }`}
                   >
                     Auto (Adaptativo)
@@ -516,10 +642,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     <button
                       key={lvl.id}
                       onClick={() => selectQuality(lvl.id)}
-                      className={`w-full text-left px-3 py-1.5 rounded transition ${
+                      className={`w-full text-left px-3 py-1.5 rounded-lg transition ${
                         currentQuality === lvl.id
-                          ? "bg-[#4edea3]/20 text-[#4edea3] font-bold"
-                          : "hover:bg-[#262a34] text-[#dfe2ef]"
+                          ? "bg-[#10b981]/20 text-[#4edea3] font-bold"
+                          : "hover:bg-white/5 text-[#dfe2ef]"
                       }`}
                     >
                       {lvl.label}
@@ -532,7 +658,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             {/* Fullscreen Toggle */}
             <button
               onClick={toggleFullscreen}
-              className="p-1.5 rounded hover:bg-white/10 text-white hover:text-[#4edea3] transition"
+              className="p-1.5 rounded-lg hover:bg-white/10 text-white hover:text-[#4edea3] transition"
               title="Pantalla Completa (F)"
             >
               {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
