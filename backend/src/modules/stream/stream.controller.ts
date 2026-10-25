@@ -74,7 +74,7 @@ export class StreamController {
 
       const upstreamUrl = XtreamService.buildHlsUrl(host, username, password, streamId);
 
-      // 4. Fetch upstream manifest
+      // 4. Fetch upstream manifest with automatic retry
       let upstreamResponse;
       try {
         upstreamResponse = await axios.get<string>(upstreamUrl, {
@@ -88,13 +88,24 @@ export class StreamController {
           },
         });
       } catch (err: unknown) {
-        // Fallback or demo manifest if stream is unreachable or offline
-        const errorMsg = err instanceof Error ? err.message : "Upstream stream unreachable";
-        res.status(502).json({
-          error: "No se pudo conectar con el canal de IPTV",
-          details: errorMsg,
-        });
-        return;
+        // Fast retry with a direct connection if keep-alive pool timed out
+        try {
+          upstreamResponse = await axios.get<string>(upstreamUrl, {
+            responseType: "text",
+            timeout: 12000,
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              Connection: "close",
+            },
+          });
+        } catch (retryErr: unknown) {
+          const errorMsg = retryErr instanceof Error ? retryErr.message : "Upstream stream unreachable";
+          res.status(502).json({
+            error: "No se pudo conectar con el canal de IPTV",
+            details: errorMsg,
+          });
+          return;
+        }
       }
 
       const manifestContent = upstreamResponse.data;
@@ -163,16 +174,30 @@ export class StreamController {
         headers["Range"] = req.headers.range as string;
       }
 
-      const response = await axios.get(targetUrl, {
-        responseType: "stream",
-        timeout: 15000,
-        httpAgent,
-        httpsAgent,
-        headers: {
-          ...headers,
-          Connection: "keep-alive",
-        },
-      });
+      let response;
+      try {
+        response = await axios.get(targetUrl, {
+          responseType: "stream",
+          timeout: 15000,
+          httpAgent,
+          httpsAgent,
+          headers: {
+            ...headers,
+            Connection: "keep-alive",
+          },
+        });
+      } catch (firstErr) {
+        // Fast retry on transient connection drops or load-balancer flips
+        console.warn(`[Stream Proxy] Retrying chunk download for ${targetUrl.slice(0, 60)}...`);
+        response = await axios.get(targetUrl, {
+          responseType: "stream",
+          timeout: 18000,
+          headers: {
+            ...headers,
+            Connection: "close", // Bypass stale keep-alive pool on retry
+          },
+        });
+      }
 
       if (response.headers["content-range"]) {
         res.setHeader("Content-Range", response.headers["content-range"] as string);

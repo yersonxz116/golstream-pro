@@ -20,7 +20,7 @@ export function verifyAuthToken(token: string): UserTokenPayload {
   return jwt.verify(token, env.JWT_SECRET) as UserTokenPayload;
 }
 
-export function signStreamToken(payload: StreamTokenPayload, expiresIn: jwt.SignOptions["expiresIn"] = "4h"): string {
+export function signStreamToken(payload: StreamTokenPayload, expiresIn: jwt.SignOptions["expiresIn"] = "24h"): string {
   return jwt.sign(payload, env.STREAM_TOKEN_SECRET, { expiresIn });
 }
 

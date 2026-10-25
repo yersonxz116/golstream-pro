@@ -38,6 +38,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
+  // Anti-Freeze & Playback tracking
+  const isUserPausedRef = useRef<boolean>(false);
+  const lastTimeRef = useRef<number>(0);
+  const frozenTicksRef = useRef<number>(0);
+
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
@@ -52,6 +57,85 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
+  // Active Anti-Freeze Watchdog (Guardián de Continuidad en Vivo)
+  useEffect(() => {
+    const watchdogInterval = setInterval(() => {
+      const video = videoRef.current;
+      const hls = hlsRef.current;
+      if (!video || isUserPausedRef.current) return;
+
+      // When the stream is supposed to be playing:
+      if (!video.paused) {
+        if (video.currentTime === lastTimeRef.current && video.readyState >= 2) {
+          frozenTicksRef.current += 1;
+          console.warn(
+            `[Anti-Freeze Watchdog] Stream sin avance en ${video.currentTime.toFixed(2)}s (congelado ${frozenTicksRef.current * 2}s)`
+          );
+
+          if (frozenTicksRef.current === 2) {
+            // Level 1: Nudge forward past PTS gap / ad transition hole
+            console.info("[Anti-Freeze Watchdog] Nudgeando 250ms hacia adelante para saltar bache PTS...");
+            video.currentTime += 0.25;
+            video.play().catch(() => {});
+          } else if (frozenTicksRef.current === 3) {
+            // Level 2: Jump to live edge
+            console.info("[Anti-Freeze Watchdog] Saltando al punto en vivo (live edge)...");
+            if (hls?.liveSyncPosition) {
+              video.currentTime = hls.liveSyncPosition;
+            } else {
+              video.currentTime += 1.0;
+            }
+            hls?.startLoad();
+            video.play().catch(() => {});
+          } else if (frozenTicksRef.current >= 5) {
+            // Level 3: Soft media recovery
+            console.warn("[Anti-Freeze Watchdog] Ejecutando recuperación profunda de stream...");
+            frozenTicksRef.current = 0;
+            hls?.recoverMediaError();
+            video.play().catch(() => {});
+          }
+        } else {
+          frozenTicksRef.current = 0;
+          lastTimeRef.current = video.currentTime;
+        }
+      } else if (!isUserPausedRef.current && video.readyState >= 2) {
+        // Video paused unexpectedly (e.g. browser ad pause or packet drop)
+        console.warn("[Anti-Freeze Watchdog] Video pausado automáticamente sin orden del usuario. Reanudando...");
+        video.play().catch(() => {});
+      }
+    }, 2000);
+
+    return () => clearInterval(watchdogInterval);
+  }, []);
+
+  // HTML5 Video element event listeners
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleWaiting = () => setIsLoading(true);
+    const handlePlaying = () => {
+      setIsLoading(false);
+      setIsPlaying(true);
+      setErrorMessage(null);
+    };
+    const handleStalled = () => {
+      if (!isUserPausedRef.current && hlsRef.current) {
+        hlsRef.current.startLoad();
+      }
+    };
+
+    video.addEventListener("waiting", handleWaiting);
+    video.addEventListener("playing", handlePlaying);
+    video.addEventListener("stalled", handleStalled);
+
+    return () => {
+      video.removeEventListener("waiting", handleWaiting);
+      video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("stalled", handleStalled);
+    };
+  }, []);
+
   // Initialize or reload HLS player
   useEffect(() => {
     const video = videoRef.current;
@@ -59,6 +143,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     setErrorMessage(null);
     setIsLoading(true);
+    isUserPausedRef.current = false;
+    frozenTicksRef.current = 0;
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -68,23 +154,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 3,
-        liveDurationInfinity: true,
+        // Standard IPTV uses 10s TS chunks; lowLatencyMode: false gives rock-solid buffer smoothing
+        lowLatencyMode: false,
         backBufferLength: 30,
-        maxBufferLength: 4,
-        maxMaxBufferLength: 8,
-        maxBufferSize: 30 * 1000 * 1000,
+        maxBufferLength: 30, // 30s forward buffer prevents underruns during ad breaks & jitter
+        maxMaxBufferLength: 60,
+        maxBufferSize: 60 * 1000 * 1000,
+        liveSyncDurationCount: 3, // Safe live distance (30s)
+        liveMaxLatencyDurationCount: 6,
+        liveDurationInfinity: true,
         startFragPrefetch: true,
-        testBandwidth: false,
-        manifestLoadingTimeOut: 10000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 10000,
-        fragLoadingTimeOut: 15000,
-        fragLoadingMaxRetry: 4,
-        nudgeOffset: 0.1,
-        nudgeMaxRetry: 5,
+        // Gap jumping & PTS discontinuity tolerance
+        highBufferWatchdogPeriod: 2,
+        maxBufferHole: 3, // Auto-skip PTS holes up to 3s (commercials/audio switches)
+        nudgeOffset: 0.2,
+        nudgeMaxRetry: 10,
+        maxFragLookUpTolerance: 0.25,
+        // Resilient loading timeouts and retries
+        manifestLoadingTimeOut: 15000,
+        manifestLoadingMaxRetry: 5,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingTimeOut: 15000,
+        levelLoadingMaxRetry: 5,
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
       });
 
       hlsRef.current = hls;
@@ -131,24 +225,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       // Error handling and auto-reconnection
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        console.warn("[Hls Error]", data.type, data.details);
+        console.warn("[Hls Event]", data.type, data.details, "fatal:", data.fatal);
+
+        // Auto-nudge on non-fatal buffer stalls (ad insertion / PTS gap)
+        if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+          if (video && !video.paused && !isUserPausedRef.current) {
+            video.currentTime += 0.2;
+            video.play().catch(() => {});
+          }
+        }
+
+        if (
+          data.details === Hls.ErrorDetails.BUFFER_NUDGE_ON_STALL ||
+          data.details === Hls.ErrorDetails.BUFFER_SEEK_OVER_HOLE
+        ) {
+          if (video && !video.paused && !isUserPausedRef.current) {
+            video.play().catch(() => {});
+          }
+        }
 
         if (data.fatal) {
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              setErrorMessage("Pérdida de señal o corte de red. Reconectando...");
-              setIsLoading(true);
-              setTimeout(() => {
-                hls.startLoad();
-              }, 2000);
+              console.warn("[Hls Error] Error de red fatal. Reiniciando carga de segmentos...");
+              hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              setErrorMessage("Error de decodificación. Recuperando flujo...");
+              console.warn("[Hls Error] Error de decodificación fatal. Recuperando buffer...");
               hls.recoverMediaError();
               break;
             default:
-              setErrorMessage("Fallo crítico en el stream. Intenta recargar.");
-              hls.destroy();
+              console.error("[Hls Error] Error fatal crítico. Reconectando stream automáticamente...");
+              setRetryCount((prev) => prev + 1);
               break;
           }
         }
@@ -198,9 +306,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play();
+      isUserPausedRef.current = false;
+      video.play().catch(() => {});
       setIsPlaying(true);
     } else {
+      isUserPausedRef.current = true;
       video.pause();
       setIsPlaying(false);
     }
